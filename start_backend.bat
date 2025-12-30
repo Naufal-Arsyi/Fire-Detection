@@ -1,13 +1,14 @@
 @echo off
+title Fire Detection Backend
 echo =====================================
 echo  FIRE DETECTION BACKEND STARTING
 echo =====================================
 
 REM pindah ke folder project
-cd /d D:\CompVis\firedetec
+cd /d C:\laragon\www\firedetec
 
 REM aktifkan virtual environment
-call .venv\Scripts\activate
+call .venv\Scripts\activate.bat
 
 REM masuk ke backend
 cd backend

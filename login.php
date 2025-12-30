@@ -1,27 +1,42 @@
 <?php
+session_start();
 include "db.php";
 
-$username = $_POST['username'];
-$password = $_POST['password'];
+$username = $_POST['username'] ?? '';
+$password = $_POST['password'] ?? '';
 
-$sql = "SELECT * FROM users WHERE username='$username' LIMIT 1";
-$result = $conn->query($sql);
+$stmt = $conn->prepare(
+  "SELECT id, name, password, location FROM users WHERE username = ? LIMIT 1"
+);
+$stmt->bind_param("s", $username);
+$stmt->execute();
+
+$result = $stmt->get_result();
 
 if ($result->num_rows === 1) {
     $row = $result->fetch_assoc();
 
-    if ($row['password'] === $password) {
+    if (password_verify($password, $row['password'])) {
+
+        $_SESSION['user'] = [
+            "id" => $row["id"],
+            "name" => $row["name"],
+            "location" => $row["location"]
+        ];
+
         echo json_encode([
             "status" => "success",
-            "user" => [
-                "id" => $row["id"],
-                "name" => $row["name"]
-            ]
+            "user" => $_SESSION['user']
         ]);
     } else {
-        echo json_encode(["status" => "error", "message" => "Password salah"]);
+        echo json_encode([
+            "status" => "error",
+            "message" => "Password salah"
+        ]);
     }
 } else {
-    echo json_encode(["status" => "error", "message" => "User tidak ditemukan"]);
+    echo json_encode([
+        "status" => "error",
+        "message" => "User tidak ditemukan"
+    ]);
 }
-?>

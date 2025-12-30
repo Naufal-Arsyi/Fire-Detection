@@ -1,6 +1,23 @@
+# ===============================
+# Backend API
+# ===============================
 fastapi
 uvicorn
+
+# ===============================
+# Computer Vision & YOLOv8
+# ===============================
 ultralytics
 opencv-python
 numpy
-python-multipart
+
+# ===============================
+# Database
+# ===============================
+mysql-connector-python
+
+# ===============================
+# Utilities
+# ===============================
+python-dotenv
+requests

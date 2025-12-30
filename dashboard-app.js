@@ -1,28 +1,19 @@
 // dashboard-app.js
-
 const BACKEND_URL = "http://127.0.0.1:8000";
 
-// ===============================
-// Backend Control
-// ===============================
-async function sendControl(action) {
-  try {
-    const res = await fetch(`${BACKEND_URL}/control`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action })
-    });
+async function sendControl(action, userId) {
+  console.log("[CONTROL] sending:", action, "user_id:", userId);
 
-    if (!res.ok) throw new Error("Control API failed");
+  const res = await fetch(`${BACKEND_URL}/control`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action,
+      user_id: userId
+    })
+  });
 
-    const data = await res.json();
-    console.log("CONTROL:", data);
-    return data;
-
-  } catch (err) {
-    console.error("Control API error:", err);
-    return null;
-  }
+  return await res.json();
 }
 
 function DashboardApp() {
@@ -33,49 +24,45 @@ function DashboardApp() {
   const [fireDetected, setFireDetected] = React.useState(false);
   const [totalDetections, setTotalDetections] = React.useState(0);
   const [alerts, setAlerts] = React.useState([]);
-  const [selectedLocation, setSelectedLocation] = React.useState("ruang-tamu");
 
   const videoRef = React.useRef(null);
   const streamRef = React.useRef(null);
   const detectionAPIRef = React.useRef(null);
 
   // ===============================
-  // Auth check
+  // AUTH INIT (PENTING)
   // ===============================
   React.useEffect(() => {
-    const currentUser = getCurrentUser();
-    if (!currentUser) {
-      window.location.href = "index.html";
-    } else {
-      setUser(currentUser);
-    }
+    async function init() {
+      console.log("[AUTH] checking session...");
+      const u = await getCurrentUser();
+      console.log("[AUTH] session result:", u);
 
-    return () => {
-      stopCamera();
-    };
+      if (!u || !u.id) {
+        window.location.href = "index.html";
+        return;
+      }
+
+      setUser(u);
+    }
+    init();
+
+    return () => stopCamera();
   }, []);
 
   // ===============================
-  // Camera
+  // CAMERA
   // ===============================
   const startCamera = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480 }
-      });
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: 640, height: 480 }
+    });
 
-      streamRef.current = stream;
+    streamRef.current = stream;
+    videoRef.current.srcObject = stream;
+    await videoRef.current.play();
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
-
-      setCameraActive(true);
-    } catch (err) {
-      console.error("Camera error:", err);
-      alert("Tidak dapat mengakses kamera");
-    }
+    setCameraActive(true);
   };
 
   const stopCamera = () => {
@@ -83,26 +70,33 @@ function DashboardApp() {
       streamRef.current.getTracks().forEach(t => t.stop());
       streamRef.current = null;
     }
-
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
-
     setCameraActive(false);
     stopDetection();
   };
 
   // ===============================
-  // Detection
+  // DETECTION
   // ===============================
   const startDetection = async () => {
+    console.log("[START DETECTION] user:", user);
+
+    if (!user || !user.id) {
+      alert("User belum siap");
+      return;
+    }
+
     if (!cameraActive) {
       await startCamera();
     }
 
-    const ctrl = await sendControl("start");
-    if (!ctrl || !ctrl.active) {
-      alert("Backend belum aktif");
+    const ctrl = await sendControl("start", user.id);
+    console.log("[CONTROL RESPONSE]", ctrl);
+
+    if (!ctrl.active) {
+      alert("Backend gagal aktif");
       return;
     }
 
@@ -110,7 +104,7 @@ function DashboardApp() {
     setApiStatus("Berjalan");
 
     detectionAPIRef.current = initFireDetectionAPI(
-      videoRef.current,   // 🔥 FIX PENTING
+      videoRef.current,
       handleDetectionResult
     );
 
@@ -118,7 +112,7 @@ function DashboardApp() {
   };
 
   const stopDetection = async () => {
-    await sendControl("stop");
+    if (user) await sendControl("stop", user.id);
 
     if (detectionAPIRef.current) {
       detectionAPIRef.current.stop();
@@ -130,26 +124,30 @@ function DashboardApp() {
   };
 
   // ===============================
-  // Handle result
+  // HANDLE RESULT
   // ===============================
   const handleDetectionResult = (result) => {
-    if (result.detected) {
-      setFireDetected(true);
-      setTotalDetections(prev => prev + 1);
+  console.log("DETECTION RESULT:", result);
 
-      const alert = {
+  if (result.fire === true) {
+    setFireDetected(true);
+    setTotalDetections(prev => prev + 1);
+
+    setAlerts(prev => [
+      {
         id: Date.now(),
-        message: `🔥 Api terdeteksi (${result.source})`
-      };
+        message: `🔥 Api terdeteksi (confidence ${result.confidence.toFixed(2)})`
+      },
+      ...prev
+    ].slice(0, 5));
+  } else {
+    setFireDetected(false);
+  }
+};
 
-      setAlerts(prev => [alert, ...prev].slice(0, 5));
-    } else {
-      setFireDetected(false);
-    }
-  };
 
   if (!user) {
-    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+    return <div className="text-white p-10">Loading user...</div>;
   }
 
   // ===============================
@@ -157,76 +155,56 @@ function DashboardApp() {
   // ===============================
   return (
     <div className="min-h-screen bg-gray-900 text-white">
-      <nav className="bg-gray-800 px-6 py-4 flex justify-between">
-        <h1 className="text-lg font-bold">🔥 Deteksi Api Real-Time</h1>
-        <button onClick={logout} className="bg-red-600 px-4 py-2 rounded">
-          Keluar
+      <nav className="bg-gray-800 p-4 flex justify-between">
+        <b>🔥 Fire Detection</b>
+        <button onClick={logout} className="bg-red-600 px-4 py-1 rounded">
+          Logout
         </button>
       </nav>
 
       <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* CAMERA */}
         <div className="lg:col-span-2 bg-gray-800 p-4 rounded">
-          <div className="flex justify-between mb-4">
-            <select
-              value={selectedLocation}
-              onChange={e => setSelectedLocation(e.target.value)}
-              className="bg-gray-700 px-3 py-2 rounded"
-            >
-              <option value="ruang-tamu">Ruang Tamu</option>
-              <option value="kamar">Kamar</option>
-              <option value="dapur">Dapur</option>
-            </select>
+          <button
+            onClick={detectionActive ? stopDetection : startDetection}
+            className="bg-red-600 px-4 py-2 rounded mb-4"
+          >
+            {detectionActive ? "Stop Deteksi" : "Mulai Deteksi"}
+          </button>
 
-            <button
-              onClick={detectionActive ? stopDetection : startDetection}
-              className="bg-red-600 px-4 py-2 rounded"
-            >
-              {detectionActive ? "Stop Deteksi" : "Mulai Deteksi"}
-            </button>
-          </div>
-
-          <div className="bg-black aspect-video rounded overflow-hidden flex items-center justify-center">
-            {!cameraActive && (
-              <span className="text-gray-400">
-                Klik "Mulai Deteksi" untuk menyalakan kamera
-              </span>
-            )}
+          <div className="bg-black aspect-video rounded overflow-hidden">
             <video
               ref={videoRef}
               muted
-              playsInline
               autoPlay
+              playsInline
               className={cameraActive ? "w-full h-full object-cover" : "hidden"}
             />
+            {!cameraActive && (
+              <div className="flex items-center justify-center h-full text-gray-400">
+                Kamera belum aktif
+              </div>
+            )}
           </div>
         </div>
 
-        {/* STATUS */}
-        <div className="space-y-4">
-          <div className="bg-gray-800 p-4 rounded">
-            <p>Status API: <b>{apiStatus}</b></p>
-            <p>Deteksi Api: <b>{fireDetected ? "YA 🔥" : "Tidak"}</b></p>
-            <p>Total Deteksi: <b>{totalDetections}</b></p>
-          </div>
+        <div className="bg-gray-800 p-4 rounded">
+          <p>Status API: <b>{apiStatus}</b></p>
+          <p>Api: <b>{fireDetected ? "🔥 YA" : "Tidak"}</b></p>
+          <p>Total: <b>{totalDetections}</b></p>
 
-          <div className="bg-gray-800 p-4 rounded">
-            <h2 className="font-bold mb-2">Riwayat Alert</h2>
-            {alerts.length === 0 ? (
-              <p className="text-gray-400 text-sm">Belum ada alert</p>
-            ) : (
-              alerts.map(a => (
-                <div key={a.id} className="text-orange-400 text-sm">
-                  {a.message}
-                </div>
-              ))
-            )}
-          </div>
+          <hr className="my-2 border-gray-600" />
+
+          <b>Alert</b>
+          {alerts.map(a => (
+            <div key={a.id} className="text-orange-400 text-sm">
+              {a.message}
+            </div>
+          ))}
         </div>
       </div>
     </div>
   );
 }
 
-const root = ReactDOM.createRoot(document.getElementById("root"));
-root.render(<DashboardApp />);
+ReactDOM.createRoot(document.getElementById("root"))
+  .render(<DashboardApp />);

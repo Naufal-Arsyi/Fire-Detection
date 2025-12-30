@@ -1,8 +1,8 @@
 <?php
 $host = "localhost";
 $user = "root";
-$pass = ""; 
-$db   = "fire_detection";
+$pass = "";
+$db   = "fire_detect"; // 🔥 FIX DI SINI
 
 $conn = new mysqli($host, $user, $pass, $db);
 

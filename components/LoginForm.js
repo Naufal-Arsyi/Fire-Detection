@@ -1,77 +1,78 @@
 function LoginForm({ onRegisterClick, showAlert }) {
-  try {
-    const [username, setUsername] = React.useState('');
-    const [password, setPassword] = React.useState('');
-    const [loading, setLoading] = React.useState(false);
+  const [username, setUsername] = React.useState("");
+  const [password, setPassword] = React.useState("");
 
-    const handleLogin = async (e) => {
-      e.preventDefault();
-      
-      if (!username || !password) {
-        showAlert('Mohon isi username dan password', 'error');
-        return;
-      }
+  const handleSubmit = async (e) => {
+    e.preventDefault();
 
-      setLoading(true);
-      
-      const result = await loginUser(username, password);
-      
-      setLoading(false);
-      
-      if (result.success) {
-        showAlert('Login berhasil!', 'success');
-        setTimeout(() => {
-          window.location.href = 'dashboard.html';
-        }, 1000);
+    if (!username || !password) {
+      showAlert("Username dan password wajib diisi", "error");
+      return;
+    }
+
+    try {
+      const formData = new FormData();
+      formData.append("username", username);
+      formData.append("password", password);
+
+      const res = await fetch("login.php", {
+        method: "POST",
+        body: formData,
+        credentials: "include" // 🔥 PENTING
+      });
+
+      const data = await res.json();
+
+      if (data.status === "success") {
+        localStorage.setItem("user", JSON.stringify(data.user));
+        window.location.href = "dashboard.html";
       } else {
-        showAlert(result.message, 'error');
+        showAlert(data.message, "error");
       }
-    };
 
-    return (
-      <div className="bg-white rounded-2xl shadow-xl p-8" data-name="login-form" data-file="components/LoginForm.js">
-        <h2 className="text-2xl font-bold text-[var(--text-primary)] mb-6">Masuk</h2>
-        
-        <form onSubmit={handleLogin} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">Username</label>
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="input-field"
-              placeholder="Masukkan username"
-            />
-          </div>
+    } catch (err) {
+      console.error("Login error:", err);
+      showAlert("Gagal login ke server", "error");
+    }
+  };
 
-          <div>
-            <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="input-field"
-              placeholder="Masukkan password"
-            />
-          </div>
-
-          <button type="submit" disabled={loading} className="btn-primary w-full">
-            {loading ? 'Memproses...' : 'Masuk'}
-          </button>
-        </form>
-
-        <div className="mt-6 text-center">
-          <p className="text-[var(--text-secondary)]">
-            Belum punya akun?{' '}
-            <button onClick={onRegisterClick} className="text-[var(--primary-color)] font-medium hover:underline">
-              Daftar di sini
-            </button>
-          </p>
-        </div>
+  return (
+    <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-lg p-8 space-y-4">
+      <div>
+        <label className="block text-sm font-medium mb-1">Username</label>
+        <input
+          className="input-field"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          placeholder="Username"
+        />
       </div>
-    );
-  } catch (error) {
-    console.error('LoginForm component error:', error);
-    return null;
-  }
+
+      <div>
+        <label className="block text-sm font-medium mb-1">Password</label>
+        <input
+          type="password"
+          className="input-field"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="Password"
+        />
+      </div>
+
+      <button type="submit" className="btn-primary w-full">
+        Login
+      </button>
+
+      <p className="text-center text-sm text-gray-600">
+        Belum punya akun?{" "}
+        <button
+          type="button"
+          onClick={onRegisterClick}
+          className="text-red-600 font-medium hover:underline"
+        >
+          Daftar
+        </button>
+      </p>
+    </form>
+  );
 }

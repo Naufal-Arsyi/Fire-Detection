@@ -1,105 +1,55 @@
-async function loadUsers() {
+// utils/auth.js
+// ==========================================
+// AUTH HELPER (SESSION-BASED, PHP ONLY)
+// ==========================================
+
+const AUTH_API = {
+  CHECK: "check_session.php",
+  LOGOUT: "logout.php"
+};
+
+/**
+ * Ambil user yang sedang login dari PHP Session
+ * @returns {Promise<object|null>}
+ */
+async function getCurrentUser() {
   try {
-    const response = await fetch('data_user.txt');
-    if (!response.ok) {
-      return [];
-    }
-    const text = await response.text();
-    if (!text.trim()) {
-      return [];
-    }
-    return text.trim().split('\n').map(line => {
-      const [username, password, address, registeredAt] = line.split('|');
-      return { username, password, address, registeredAt };
+    const response = await fetch(AUTH_API.CHECK, {
+      method: "GET",
+      credentials: "include" // 🔥 WAJIB agar session terbaca
     });
+
+    if (!response.ok) {
+      console.error("Session check failed:", response.status);
+      return null;
+    }
+
+    const data = await response.json();
+
+    if (data.logged_in === true && data.user) {
+      return data.user; // { id, name, location }
+    }
+
+    return null;
   } catch (error) {
-    console.error('Error loading users:', error);
-    return [];
+    console.error("Session error:", error);
+    return null;
   }
 }
 
-async function saveUsers(users) {
-  const content = users.map(u => 
-    `${u.username}|${u.password}|${u.address}|${u.registeredAt}`
-  ).join('\n');
-  
-  const blob = new Blob([content], { type: 'text/plain' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'data_user.txt';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  
-  return true;
-}
-
-async function registerUser(username, password, address) {
-  try {
-    const users = await loadUsers();
-    
-    const userExists = users.some(user => user.username === username);
-    
-    if (userExists) {
-      return { success: false, message: 'Username sudah digunakan' };
-    }
-
-    const newUser = {
-      username: username.trim(),
-      password: password,
-      address: address.trim(),
-      registeredAt: new Date().toISOString()
-    };
-    
-    users.push(newUser);
-    
-    const saved = await saveUsers(users);
-    
-    if (saved) {
-      return { 
-        success: true, 
-        message: 'Registrasi berhasil! File data_user.txt yang diperbarui telah diunduh. Silakan upload file tersebut ke folder project untuk menggantikan file lama.' 
-      };
-    } else {
-      return { success: false, message: 'Gagal menyimpan data' };
-    }
-  } catch (error) {
-    console.error('Registration error:', error);
-    return { success: false, message: 'Gagal melakukan registrasi. Silakan coba lagi.' };
-  }
-}
-
-async function loginUser(username, password) {
-  try {
-    const users = await loadUsers();
-    
-    const user = users.find(
-      u => u.username === username && u.password === password
-    );
-    
-    if (!user) {
-      return { success: false, message: 'Username atau password salah' };
-    }
-
-    localStorage.setItem('currentUser', JSON.stringify({
-      username: user.username
-    }));
-
-    return { success: true, user: user };
-  } catch (error) {
-    console.error('Login error:', error);
-    return { success: false, message: 'Gagal melakukan login. Silakan coba lagi.' };
-  }
-}
-
-function getCurrentUser() {
-  const user = localStorage.getItem('currentUser');
-  return user ? JSON.parse(user) : null;
-}
-
+/**
+ * Logout user (destroy PHP session)
+ */
 function logout() {
-  localStorage.removeItem('currentUser');
-  window.location.href = 'index.html';
+  fetch(AUTH_API.LOGOUT, {
+    method: "POST",
+    credentials: "include"
+  })
+    .then(() => {
+      window.location.href = "index.html";
+    })
+    .catch(err => {
+      console.error("Logout error:", err);
+      window.location.href = "index.html";
+    });
 }

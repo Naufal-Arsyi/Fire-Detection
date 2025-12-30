@@ -1,111 +1,124 @@
 function RegisterForm({ onLoginClick, showAlert }) {
-  try {
-    const [username, setUsername] = React.useState('');
-    const [password, setPassword] = React.useState('');
-    const [confirmPassword, setConfirmPassword] = React.useState('');
-    const [address, setAddress] = React.useState('');
-    const [loading, setLoading] = React.useState(false);
+  const [name, setName] = React.useState("");
+  const [username, setUsername] = React.useState("");
+  const [password, setPassword] = React.useState("");
+  const [location, setLocation] = React.useState("");
 
-    const handleRegister = async (e) => {
-      e.preventDefault();
-      
-      if (!username || !password || !confirmPassword || !address) {
-        showAlert('Mohon isi semua field', 'error');
-        return;
-      }
+  const handleSubmit = async (e) => {
+    e.preventDefault();
 
-      if (password !== confirmPassword) {
-        showAlert('Password tidak cocok', 'error');
-        return;
-      }
+    if (!name || !username || !password || !location) {
+      showAlert("Semua field wajib diisi", "error");
+      return;
+    }
 
-      if (password.length < 6) {
-        showAlert('Password minimal 6 karakter', 'error');
-        return;
-      }
+    try {
+      const formData = new FormData();
+      formData.append("name", name);
+      formData.append("username", username);
+      formData.append("password", password);
+      formData.append("location", location);
 
-      setLoading(true);
-      
-      const result = await registerUser(username, password, address);
-      
-      setLoading(false);
-      
-      if (result.success) {
-        showAlert(result.message, 'success');
-        setTimeout(() => {
-          onLoginClick();
-        }, 3000);
+      const res = await fetch("register.php", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+
+      if (data.status === "success") {
+        showAlert("Registrasi berhasil! Silakan login.", "success");
+        setTimeout(() => onLoginClick(), 1500);
       } else {
-        showAlert(result.message, 'error');
+        showAlert(data.message || "Registrasi gagal", "error");
       }
-    };
+    } catch (err) {
+      console.error("Register error:", err);
+      showAlert("Gagal terhubung ke server", "error");
+    }
+  };
 
-    return (
-      <div className="bg-white rounded-2xl shadow-xl p-8" data-name="register-form" data-file="components/RegisterForm.js">
-        <h2 className="text-2xl font-bold text-[var(--text-primary)] mb-6">Daftar</h2>
-        
-        <form onSubmit={handleRegister} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">Username</label>
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="input-field"
-              placeholder="Masukkan username"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="input-field"
-              placeholder="Buat password"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">Konfirmasi Password</label>
-            <input
-              type="password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              className="input-field"
-              placeholder="Ulangi password"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">Alamat Rumah</label>
-            <textarea
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              className="input-field resize-none"
-              rows="3"
-              placeholder="Masukkan alamat lengkap"
-            />
-          </div>
-
-          <button type="submit" disabled={loading} className="btn-primary w-full">
-            {loading ? 'Memproses...' : 'Daftar'}
-          </button>
-        </form>
-
-        <div className="mt-6 text-center">
-          <p className="text-[var(--text-secondary)]">
-            Sudah punya akun?{' '}
-            <button onClick={onLoginClick} className="text-[var(--primary-color)] font-medium hover:underline">
-              Masuk di sini
-            </button>
-          </p>
-        </div>
+  return (
+    <form
+      onSubmit={handleSubmit}
+      className="bg-white rounded-xl shadow-lg p-8 space-y-4"
+    >
+      {/* Nama Lengkap */}
+      <div>
+        <label className="block text-sm font-medium mb-1">
+          Nama Lengkap
+        </label>
+        <input
+          type="text"
+          className="input-field"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Nama lengkap pemilik rumah"
+        />
       </div>
-    );
-  } catch (error) {
-    console.error('RegisterForm component error:', error);
-    return null;
-  }
+
+      {/* Username */}
+      <div>
+        <label className="block text-sm font-medium mb-1">
+          Username
+        </label>
+        <input
+          type="text"
+          className="input-field"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          placeholder="Username untuk login"
+        />
+      </div>
+
+      {/* Password */}
+      <div>
+        <label className="block text-sm font-medium mb-1">
+          Password
+        </label>
+        <input
+          type="password"
+          className="input-field"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="Password"
+        />
+      </div>
+
+      {/* Alamat Lengkap Rumah */}
+      <div>
+        <label className="block text-sm font-medium mb-1">
+          Alamat Lengkap Rumah
+        </label>
+        <textarea
+          className="input-field"
+          rows="4"
+          value={location}
+          onChange={(e) => setLocation(e.target.value)}
+          placeholder="Contoh:
+Jl. Ahmad Yani No. 12
+RT 03 / RW 01
+Kel. Sukamaju, Kec. Tegal Barat
+Kota Tegal, Jawa Tengah"
+        />
+      </div>
+
+      {/* Submit */}
+      <button type="submit" className="btn-primary w-full">
+        Daftar
+      </button>
+
+      {/* Redirect ke Login */}
+      <p className="text-center text-sm text-gray-600">
+        Sudah punya akun?{" "}
+        <button
+          type="button"
+          onClick={onLoginClick}
+          className="text-red-600 font-medium hover:underline"
+        >
+          Login
+        </button>
+      </p>
+    </form>
+  );
 }

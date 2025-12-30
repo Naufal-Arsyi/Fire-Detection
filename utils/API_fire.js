@@ -14,8 +14,6 @@ function initFireDetectionAPI(videoElement, onResult) {
     if (!videoElement) return;
     if (videoElement.videoWidth === 0 || videoElement.videoHeight === 0) return;
 
-    console.log("📸 sending frame");
-
     canvas.width = videoElement.videoWidth;
     canvas.height = videoElement.videoHeight;
 
@@ -28,27 +26,29 @@ function initFireDetectionAPI(videoElement, onResult) {
       formData.append("file", blob, "frame.jpg");
 
       try {
-        const response = await fetch(`${BACKEND_URL}/detect`, {
+        const res = await fetch(`${BACKEND_URL}/detect`, {
           method: "POST",
           body: formData
         });
 
-        if (!response.ok) {
-          console.error("Detect API error:", response.status);
+        if (!res.ok) {
+          console.error("[DETECT] HTTP error:", res.status);
           return;
         }
 
-        const data = await response.json();
+        const data = await res.json();
 
+        console.log("[DETECT RESPONSE]", data);
+
+        // 🔥 KIRIM DATA APA ADANYA (JANGAN DIUBAH STRUKTURNYA)
         onResult({
-          detected: data.fire === true,
+          fire: data.fire === true,
           confidence: data.confidence || 0,
-          source: data.source || "YOLO",
-          timestamp: data.time || new Date().toLocaleTimeString("id-ID")
+          time: data.time || "-"
         });
 
       } catch (err) {
-        console.error("Detection fetch error:", err);
+        console.error("[DETECT] fetch error:", err);
       }
     }, "image/jpeg", 0.7);
   }
