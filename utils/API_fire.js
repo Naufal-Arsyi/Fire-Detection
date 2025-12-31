@@ -1,4 +1,8 @@
 // utils/API_fire.js
+// ============================================================
+// FIRE DETECTION API CLIENT
+// Kompatibel dengan api.py versi optimized (Fire Priority Override)
+// ============================================================
 
 const BACKEND_URL = "http://127.0.0.1:8000";
 
@@ -8,7 +12,8 @@ function initFireDetectionAPI(videoElement, onResult) {
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
 
-  const INTERVAL = 800; // ms
+  // Interval deteksi (ms) - sesuaikan dengan performa
+  const INTERVAL = 800;
 
   async function sendFrame() {
     if (!videoElement) return;
@@ -38,12 +43,24 @@ function initFireDetectionAPI(videoElement, onResult) {
 
         const data = await res.json();
 
+        // ============================================================
+        // RESPONSE STRUCTURE dari api.py:
+        // {
+        //   fire: boolean,           // true jika KEBAKARAN confirmed
+        //   confidence: float,       // nilai confidence tertinggi
+        //   detected_class: string,  // "Fire" | "Smoke" | null
+        //   time: string,            // waktu deteksi
+        //   user: object             // data user aktif
+        // }
+        // ============================================================
+
         console.log("[DETECT RESPONSE]", data);
 
-        // 🔥 KIRIM DATA APA ADANYA (JANGAN DIUBAH STRUKTURNYA)
+        // Kirim data lengkap ke callback
         onResult({
           fire: data.fire === true,
           confidence: data.confidence || 0,
+          detected_class: data.detected_class || null,  // Fire / Smoke / null
           time: data.time || "-"
         });
 

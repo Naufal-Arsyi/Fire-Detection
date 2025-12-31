@@ -9,6 +9,8 @@ load_dotenv()
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 COOLDOWN = int(os.getenv("TELEGRAM_COOLDOWN", "30"))
+print("[DEBUG] BOT_TOKEN =", BOT_TOKEN)
+print("[DEBUG] CHAT_ID =", CHAT_ID)
 
 _last_sent = 0
 
@@ -26,14 +28,21 @@ def send_message(text: str):
         "chat_id": CHAT_ID,
         "text": text
     }
-    requests.post(url, data=payload, timeout=10)
 
-def send_photo(image_path: str, caption: str = ""):
+    res = requests.post(url, data=payload, timeout=10)
+
+    print("[TELEGRAM] send_message status:", res.status_code)
+    print("[TELEGRAM] response:", res.text)
+
+
+def send_photo(image_path: str):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+
     with open(image_path, "rb") as f:
         files = {"photo": f}
-        data = {
-            "chat_id": CHAT_ID,
-            "caption": caption
-        }
-        requests.post(url, files=files, data=data, timeout=10)
+        data = {"chat_id": CHAT_ID}
+
+        res = requests.post(url, files=files, data=data, timeout=10)
+
+        print("[TELEGRAM] send_photo status:", res.status_code)
+        print("[TELEGRAM] response:", res.text)

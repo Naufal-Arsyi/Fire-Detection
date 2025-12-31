@@ -1,30 +1,87 @@
-# backend/api.py
 # ============================================================
-# FIRE & SMOKE REAL-TIME DETECTION (YOLOv8)
-# Preprocessing + Stabilization + Telegram Ready
+# api.py
+# FIRE & SMOKE REAL-TIME DETECTION SYSTEM
+# YOLOv8 + Stabilization + Telegram Alert
+# ============================================================
+# OPTIMIZED VERSION:
+# - Fire priority override (Fire > Smoke)
+# - Dual-frame processing (Original for Fire, CLAHE for Smoke)
+# - Enhanced noise filtering & temporal stabilization
+# - Smart logging system
 # ============================================================
 
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from ultralytics import YOLO
 
-from user_service import get_user_by_id
+from user_service import get_user_by_id          # ambil data user dari DB
 from telegram_service import send_message, send_photo, can_send
 
 import cv2
 import numpy as np
 import time
 import os
+import logging
+from datetime import datetime
 
 # ============================================================
-# APP & GLOBAL INIT
+# A. KONFIGURASI GLOBAL
 # ============================================================
 
+# Folder untuk menyimpan screenshot dan log
 SCREENSHOT_DIR = "screenshots"
+LOG_DIR = "logs"
 os.makedirs(SCREENSHOT_DIR, exist_ok=True)
+os.makedirs(LOG_DIR, exist_ok=True)
+
+# Setup Smart Logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s | %(levelname)s | %(message)s',
+    handlers=[
+        logging.FileHandler(f"{LOG_DIR}/detection_{datetime.now().strftime('%Y%m%d')}.log"),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger("FireDetection")
+
+# ============================================================
+# A1. THRESHOLD CONFIDENCE (TUNED)
+# ============================================================
+# 🔥 Fire: threshold lebih rendah untuk deteksi dini
+# 💨 Smoke: threshold lebih tinggi untuk mengurangi false positive
+CONF_FIRE  = 0.50   # 🔥 api prioritas utama, threshold lebih toleran
+CONF_SMOKE = 0.60   # 💨 asap butuh keyakinan lebih tinggi
+
+# ============================================================
+# A2. MINIMAL BOUNDING BOX AREA (ANTI NOISE)
+# ============================================================
+MIN_BOX_AREA_FIRE  = 2000   # Fire bisa lebih kecil di awal
+MIN_BOX_AREA_SMOKE = 3500   # Smoke harus lebih besar (anti noise)
+
+# ============================================================
+# A3. STABILISASI TEMPORAL (FRAME STABILIZER)
+# ============================================================
+FIRE_FRAME_THRESHOLD  = 2   # Fire: lebih responsif (2 frame)
+SMOKE_FRAME_THRESHOLD = 4   # Smoke: lebih ketat (4 frame)
+
+# Frame counters terpisah per kelas
+_fire_frame_count = 0
+_smoke_frame_count = 0
+
+# ============================================================
+# A4. DETECTION HISTORY (untuk logging)
+# ============================================================
+_detection_history = []
+MAX_HISTORY = 100
+
+# ============================================================
+# B. INISIALISASI FASTAPI
+# ============================================================
 
 app = FastAPI()
 
+# Izinkan akses dari frontend (JS)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -33,34 +90,34 @@ app.add_middleware(
 )
 
 # ============================================================
-# LOAD YOLO MODEL
+# C. LOAD MODEL YOLO
 # ============================================================
 
-# data.yaml:
-# 0 = Fire
-# 1 = Smoke
-FIRE_CLASSES = [0, 1]
+"""
+data.yaml:
+0 -> Fire
+1 -> Smoke
+"""
 
 model = YOLO("../models/best.pt")
 
 # ============================================================
-# GLOBAL STATE
+# D. STATE GLOBAL SISTEM
 # ============================================================
 
-is_active = False
-active_user = None
-total_detect = 0
-
-# stabilizer (C)
-FIRE_FRAME_THRESHOLD = 2   # butuh 2 frame berturut-turut
-_fire_frame_count = 0
+is_active = False          # status deteksi ON / OFF
+active_user = None         # user yang sedang login
+total_detect = 0           # total kejadian kebakaran
 
 # ============================================================
-# STATUS ENDPOINT
+# E. ENDPOINT: STATUS SISTEM
 # ============================================================
 
 @app.get("/status")
 def status():
+    """
+    Digunakan frontend untuk cek kondisi backend
+    """
     return {
         "api": "ready",
         "active": is_active,
@@ -69,11 +126,15 @@ def status():
     }
 
 # ============================================================
-# CONTROL ENDPOINT
+# F. ENDPOINT: CONTROL (START / STOP)
 # ============================================================
 
 @app.post("/control")
 def control(payload: dict):
+    """
+    Mengaktifkan / menonaktifkan sistem deteksi
+    Dipanggil dari dashboard
+    """
     global is_active, active_user, total_detect
 
     cmd = payload.get("action")
@@ -81,6 +142,8 @@ def control(payload: dict):
 
     if cmd == "start":
         is_active = True
+
+        # Set user aktif (PENTING untuk Telegram)
         if user_id:
             user = get_user_by_id(user_id)
             if user:
@@ -95,6 +158,7 @@ def control(payload: dict):
         total_detect = 0
 
     print(f"[CONTROL] {cmd} | active={is_active}")
+
     return {
         "active": is_active,
         "total_detect": total_detect,
@@ -102,15 +166,22 @@ def control(payload: dict):
     }
 
 # ============================================================
-# DETECTION ENDPOINT
+# G. ENDPOINT: DETECTION
 # ============================================================
 
 @app.post("/detect")
 async def detect(file: UploadFile = File(...)):
-    global total_detect, _fire_frame_count
+    """
+    Endpoint utama:
+    - Terima frame dari webcam
+    - Deteksi api / asap dengan prioritas FIRE > SMOKE
+    - Dual processing: Original frame untuk Fire, CLAHE untuk Smoke
+    - Kirim Telegram jika valid
+    """
+    global total_detect, _fire_frame_count, _smoke_frame_count, _detection_history
 
     # --------------------------------------------------------
-    # Guard: sistem belum aktif / user belum login
+    # 1. GUARD CONDITION
     # --------------------------------------------------------
     if not is_active or not active_user:
         return {
@@ -120,124 +191,190 @@ async def detect(file: UploadFile = File(...)):
         }
 
     # --------------------------------------------------------
-    # Decode image
+    # 2. DECODE IMAGE
     # --------------------------------------------------------
     image_bytes = await file.read()
     np_img = np.frombuffer(image_bytes, np.uint8)
-    frame = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
+    frame_original = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
 
-    if frame is None:
-        print("[ERROR] Frame decode failed")
+    if frame_original is None:
+        logger.error("Frame decode failed")
         return {
             "fire": False,
             "confidence": 0.0,
             "time": time.strftime("%H:%M:%S")
         }
 
-    print(f"[FRAME] shape={frame.shape}")
+    # --------------------------------------------------------
+    # 3. DUAL FRAME PREPROCESSING
+    # --------------------------------------------------------
+    # Frame asli untuk deteksi FIRE (warna penting)
+    frame_for_fire = frame_original.copy()
 
-    # ========================================================
-    # A. PREPROCESSING (ANTI RUANG TERANG)
-    # ========================================================
-
-    # Convert ke grayscale
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-    # CLAHE (Contrast Limited Adaptive Histogram Equalization)
+    # Frame CLAHE untuk deteksi SMOKE (kontras penting)
+    gray = cv2.cvtColor(frame_original, cv2.COLOR_BGR2GRAY)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     enhanced = clahe.apply(gray)
+    frame_for_smoke = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
 
-    # Kembali ke BGR untuk YOLO
-    frame_proc = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
-
-    # ========================================================
-    # YOLO INFERENCE
-    # ========================================================
-
-    results = model(
-        frame_proc,
-        conf=0.10,      # sensitif untuk api kecil
-        imgsz=640,      # samakan dengan training
+    # --------------------------------------------------------
+    # 4. YOLO INFERENCE - DUAL PASS
+    # --------------------------------------------------------
+    # Pass 1: Deteksi FIRE pada frame asli
+    results_fire = model(
+        frame_for_fire,
+        conf=0.10,
+        imgsz=640,
         verbose=False
     )
 
-    fire_detected = False
-    max_conf = 0.0
-    detected_class = None
+    # Pass 2: Deteksi SMOKE pada frame CLAHE
+    results_smoke = model(
+        frame_for_smoke,
+        conf=0.10,
+        imgsz=640,
+        verbose=False
+    )
 
-    if results and results[0].boxes is not None:
-        print(f"[DEBUG] boxes={len(results[0].boxes)}")
+    # --------------------------------------------------------
+    # 5. COLLECT CANDIDATES dengan PRIORITY LOGIC
+    # --------------------------------------------------------
+    fire_candidates = []
+    smoke_candidates = []
 
-        for box in results[0].boxes:
+    # Proses hasil deteksi FIRE (dari frame asli)
+    if results_fire and results_fire[0].boxes is not None:
+        for box in results_fire[0].boxes:
             cls = int(box.cls[0])
             conf = float(box.conf[0])
+            x1, y1, x2, y2 = box.xyxy[0]
+            area = float((x2 - x1) * (y2 - y1))
 
-            print(f"[YOLO] cls={cls} conf={conf:.2f}")
+            # Hanya ambil kelas Fire (cls=0) dari frame asli
+            if cls == 0 and conf >= CONF_FIRE and area >= MIN_BOX_AREA_FIRE:
+                fire_candidates.append({
+                    "class": "Fire",
+                    "confidence": conf,
+                    "area": area,
+                    "box": (x1, y1, x2, y2)
+                })
+                logger.debug(f"[FIRE CANDIDATE] conf={conf:.2f} area={int(area)}")
 
-            # ====================================================
-            # B. FIRE + SMOKE LOGIC
-            # ====================================================
-            if cls in FIRE_CLASSES:
-                _fire_frame_count += 1
-                max_conf = max(max_conf, conf)
-                detected_class = cls
-            else:
-                _fire_frame_count = 0
+    # Proses hasil deteksi SMOKE (dari frame CLAHE)
+    if results_smoke and results_smoke[0].boxes is not None:
+        for box in results_smoke[0].boxes:
+            cls = int(box.cls[0])
+            conf = float(box.conf[0])
+            x1, y1, x2, y2 = box.xyxy[0]
+            area = float((x2 - x1) * (y2 - y1))
+
+            # Hanya ambil kelas Smoke (cls=1) dari frame CLAHE
+            if cls == 1 and conf >= CONF_SMOKE and area >= MIN_BOX_AREA_SMOKE:
+                smoke_candidates.append({
+                    "class": "Smoke",
+                    "confidence": conf,
+                    "area": area,
+                    "box": (x1, y1, x2, y2)
+                })
+                logger.debug(f"[SMOKE CANDIDATE] conf={conf:.2f} area={int(area)}")
+
+    # --------------------------------------------------------
+    # 6. PRIORITY OVERRIDE: FIRE > SMOKE
+    # --------------------------------------------------------
+    # Fire SELALU prioritas meskipun confidence lebih rendah
+    detected_class = None
+    max_conf = 0.0
+    best_candidate = None
+
+    if fire_candidates:
+        # FIRE detected → prioritas absolut
+        best_candidate = max(fire_candidates, key=lambda x: x["confidence"])
+        detected_class = "Fire"
+        max_conf = best_candidate["confidence"]
+        logger.info(f"🔥 FIRE PRIORITY | conf={max_conf:.2f} area={int(best_candidate['area'])}")
+    elif smoke_candidates:
+        # Smoke hanya diproses jika TIDAK ada Fire
+        best_candidate = max(smoke_candidates, key=lambda x: x["confidence"])
+        detected_class = "Smoke"
+        max_conf = best_candidate["confidence"]
+        logger.info(f"💨 SMOKE DETECTED | conf={max_conf:.2f} area={int(best_candidate['area'])}")
+
+    # --------------------------------------------------------
+    # 7. STABILIZATION TEMPORAL (per-class counters)
+    # --------------------------------------------------------
+    fire_detected = False
+
+    if detected_class == "Fire":
+        _fire_frame_count += 1
+        _smoke_frame_count = 0  # Reset smoke counter
+        if _fire_frame_count >= FIRE_FRAME_THRESHOLD:
+            fire_detected = True
+            _fire_frame_count = 0
+
+    elif detected_class == "Smoke":
+        _smoke_frame_count += 1
+        _fire_frame_count = 0  # Reset fire counter
+        if _smoke_frame_count >= SMOKE_FRAME_THRESHOLD:
+            fire_detected = True
+            _smoke_frame_count = 0
 
     else:
-        print("[DEBUG] NO BOXES")
-        _fire_frame_count = 0
+        # Reset semua counter jika tidak ada deteksi
+        _fire_frame_count = max(0, _fire_frame_count - 1)
+        _smoke_frame_count = max(0, _smoke_frame_count - 1)
 
-    # ========================================================
-    # C. STABILIZATION (ANTI 1-FRAME NOISE)
-    # ========================================================
-
-    if _fire_frame_count >= FIRE_FRAME_THRESHOLD:
-        fire_detected = True
-        _fire_frame_count = 0
-    else:
-        fire_detected = False
-
-    # ========================================================
-    # FIRE CONFIRMED
-    # ========================================================
-
+    # --------------------------------------------------------
+    # 8. CONFIRMED DETECTION → ACTION
+    # --------------------------------------------------------
     if fire_detected:
         total_detect += 1
 
-        label = "Fire" if detected_class == 0 else "Smoke"
+        # Log ke history
+        detection_record = {
+            "timestamp": datetime.now().isoformat(),
+            "class": detected_class,
+            "confidence": max_conf,
+            "user": active_user['name']
+        }
+        _detection_history.append(detection_record)
+        if len(_detection_history) > MAX_HISTORY:
+            _detection_history.pop(0)
 
-        print(
-            f"[FIRE] CONFIRMED | {label} | "
-            f"User={active_user['name']} | "
-            f"conf={max_conf:.2f}"
+        logger.warning(
+            f"🚨 KEBAKARAN CONFIRMED | Jenis={detected_class} | "
+            f"User={active_user['name']} | Conf={max_conf:.2f}"
         )
 
-        # Telegram alert (cooldown handled inside)
+        # ----------------------------------------------------
+        # 9. TELEGRAM ALERT
+        # ----------------------------------------------------
         if can_send():
-            filename = f"{SCREENSHOT_DIR}/fire_{int(time.time())}.jpg"
-            cv2.imwrite(filename, frame)
+            timestamp = int(time.time())
+            filename = f"{SCREENSHOT_DIR}/fire_{timestamp}.jpg"
+            cv2.imwrite(filename, frame_original)
 
+            # Pesan seragam "KEBAKARAN" tapi tetap informatif detail
             message = (
                 "🔥 *PERINGATAN KEBAKARAN* 🔥\n\n"
                 f"👤 Pemilik: {active_user['name']}\n"
                 f"📍 Alamat:\n{active_user['location']}\n\n"
-                f"🚨 Jenis: {label}\n"
+                f"🚨 Jenis Deteksi: {detected_class}\n"
                 f"🎯 Confidence: {max_conf:.2f}\n"
                 f"⏰ Waktu: {time.strftime('%H:%M:%S')}\n\n"
-                "Segera lakukan penanganan darurat!"
+                "⚠️ Segera lakukan penanganan darurat!"
             )
 
             send_message(message)
             send_photo(filename)
+            logger.info(f"📤 Telegram alert sent | {filename}")
 
-    # ========================================================
-    # RESPONSE
-    # ========================================================
-
+    # --------------------------------------------------------
+    # 10. RESPONSE KE FRONTEND (seragam KEBAKARAN)
+    # --------------------------------------------------------
     return {
         "fire": fire_detected,
         "confidence": max_conf,
+        "detected_class": detected_class,  # Detail untuk logging
         "time": time.strftime("%H:%M:%S"),
         "user": active_user
     }

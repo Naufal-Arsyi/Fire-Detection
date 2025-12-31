@@ -22,6 +22,8 @@ function DashboardApp() {
   const [detectionActive, setDetectionActive] = React.useState(false);
   const [apiStatus, setApiStatus] = React.useState("Siap");
   const [fireDetected, setFireDetected] = React.useState(false);
+  const [detectedClass, setDetectedClass] = React.useState(null);  // "Fire" | "Smoke" | null
+  const [lastConfidence, setLastConfidence] = React.useState(0);
   const [totalDetections, setTotalDetections] = React.useState(0);
   const [alerts, setAlerts] = React.useState([]);
 
@@ -127,23 +129,33 @@ function DashboardApp() {
   // HANDLE RESULT
   // ===============================
   const handleDetectionResult = (result) => {
-  console.log("DETECTION RESULT:", result);
+    console.log("DETECTION RESULT:", result);
 
-  if (result.fire === true) {
-    setFireDetected(true);
-    setTotalDetections(prev => prev + 1);
+    // Update detected class untuk display (bisa Fire, Smoke, atau null)
+    setDetectedClass(result.detected_class);
+    setLastConfidence(result.confidence || 0);
 
-    setAlerts(prev => [
-      {
-        id: Date.now(),
-        message: `🔥 Api terdeteksi (confidence ${result.confidence.toFixed(2)})`
-      },
-      ...prev
-    ].slice(0, 5));
-  } else {
-    setFireDetected(false);
-  }
-};
+    if (result.fire === true) {
+      // KEBAKARAN CONFIRMED (sudah melewati stabilization)
+      setFireDetected(true);
+      setTotalDetections(prev => prev + 1);
+
+      // Tentukan emoji dan label berdasarkan jenis deteksi
+      const emoji = result.detected_class === "Fire" ? "🔥" : "💨";
+      const label = result.detected_class === "Fire" ? "API" : "ASAP";
+
+      setAlerts(prev => [
+        {
+          id: Date.now(),
+          type: result.detected_class,  // untuk styling
+          message: `${emoji} KEBAKARAN - ${label} terdeteksi (${(result.confidence * 100).toFixed(0)}%)`
+        },
+        ...prev
+      ].slice(0, 5));
+    } else {
+      setFireDetected(false);
+    }
+  };
 
 
   if (!user) {
@@ -189,14 +201,26 @@ function DashboardApp() {
 
         <div className="bg-gray-800 p-4 rounded">
           <p>Status API: <b>{apiStatus}</b></p>
-          <p>Api: <b>{fireDetected ? "🔥 YA" : "Tidak"}</b></p>
-          <p>Total: <b>{totalDetections}</b></p>
+          <p>Status: <b className={fireDetected ? "text-red-500" : "text-green-500"}>
+            {fireDetected ? "🚨 KEBAKARAN" : "✅ Aman"}
+          </b></p>
+          <p>Jenis: <b className={detectedClass === "Fire" ? "text-orange-500" : detectedClass === "Smoke" ? "text-gray-400" : ""}>
+            {detectedClass === "Fire" ? "🔥 Api" : detectedClass === "Smoke" ? "💨 Asap" : "-"}
+          </b></p>
+          <p>Confidence: <b>{lastConfidence > 0 ? `${(lastConfidence * 100).toFixed(0)}%` : "-"}</b></p>
+          <p>Total Deteksi: <b>{totalDetections}</b></p>
 
           <hr className="my-2 border-gray-600" />
 
-          <b>Alert</b>
+          <b>Riwayat Alert</b>
+          {alerts.length === 0 && (
+            <p className="text-gray-500 text-sm">Belum ada alert</p>
+          )}
           {alerts.map(a => (
-            <div key={a.id} className="text-orange-400 text-sm">
+            <div 
+              key={a.id} 
+              className={`text-sm py-1 ${a.type === "Fire" ? "text-orange-400" : "text-gray-400"}`}
+            >
               {a.message}
             </div>
           ))}
