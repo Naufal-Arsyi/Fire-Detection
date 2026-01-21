@@ -1,0 +1,92 @@
+
+ALUR SISTEM – FIRE DETECTION SYSTEM
+
+Link Google Drive (paket pendukung / token Telegram):
+https://drive.google.com/drive/folders/1IMXcdK6cZcv8W3cUfu5xhxGhZvV5vqXe?usp=drive_link
+
+Link sumber dataset : https://universe.roboflow.com/fire-and-smoke-detection-yolo/fire-and-smoke-detection-o4uhv/dataset/4
+
+token telegram : 8436531917:AAE3iZsf8k5g3DOJEksVnBpkHQBVTEIRelk
+
+=====================================================
+TUTORIAL SINGKAT (DARI AWAL SAMPAI BISA DIPAKAI)
+=====================================================
+
+1) Persiapan awal (sekali di awal)
+1. Install Laragon / XAMPP (untuk Apache + MySQL).
+2. Install Python 3.8+.
+3. Pastikan project berada di folder web server (contoh Laragon):
+	C:\laragon\www\firedetec
+4. Jalankan MySQL dan Apache dari Laragon/XAMPP.
+
+2) Siapkan token Telegram (opsional)
+Jika ingin fitur notifikasi Telegram aktif:
+1. Token diberikan oleh admin (tersimpan di file txt pada link Google Drive di atas).
+2. Token dimasukkan pada saat registrasi akun (kolom "Token Telegram").
+
+3) Setup backend (Python)
+1. Jalankan: setup_backend.bat
+	- Script akan membuat virtual environment (.venv)
+	- Install dependencies dari backend/requirements.txt
+	- Jika backend/.env belum ada, file tersebut dibuat otomatis (konfigurasi DB)
+
+4) Menyalakan backend deteksi
+Jalankan: start_backend.bat
+Backend FastAPI akan berjalan di:
+http://127.0.0.1:8000
+
+5) Menjalankan web
+1. Buka index.html lewat browser (via Apache/Laragon).
+2. Login atau registrasi akun.
+	- Saat registrasi, user diminta memasukkan chat_id Telegram sendiri.
+	- Ambil chat_id lewat: https://t.me/userinfobot
+	- User WAJIB /start ke bot dulu: https://t.me/FireDA_bot
+3. Setelah login, masuk dashboard, izinkan akses kamera, lalu klik Mulai Deteksi.
+
+=====================================================
+TUTORIAL PENGGUNAAN WEB (ALUR PENGGUNA)
+=====================================================
+
+1) Registrasi (regis.html)
+- Isi nama, username, password
+- Isi token Telegram (dari file txt admin) dan klik link Google Drive jika diperlukan
+- Isi chat_id (dari userinfobot)
+- Klik /start bot FireDA_bot, lalu centang konfirmasi
+- Isi alamat lengkap rumah
+
+2) Login (index.html)
+- Masukkan username + password
+- Sistem akan menyalakan backend otomatis (melalui backend_web/start_backend.php)
+
+3) Dashboard (dashboard.html)
+- Klik Mulai Deteksi
+- Browser meminta izin webcam
+- Sistem mengirim frame kamera secara berkala ke backend
+
+4) Notifikasi
+- Jika confidence melewati threshold, alarm berbunyi dan sistem mengirim notifikasi Telegram
+- Notifikasi berisi nama pemilik, alamat, jenis (Fire/Smoke), confidence, waktu, dan screenshot
+
+=====================================================
+FITUR-FITUR WEB
+=====================================================
+
+1) Autentikasi user
+- Registrasi & login (PHP + session)
+- Data user tersimpan di MySQL
+
+2) Deteksi api/asap real-time
+- YOLOv8 + preprocessing (fire vs smoke)
+- Motion detection untuk mengurangi false positive objek statis
+- Temporal stabilization untuk mengurangi deteksi “kedip-kedip”
+
+3) Alarm lokal
+- Alarm berbunyi di browser saat deteksi high confidence
+
+4) Log & screenshot
+- Log tersimpan di backend/logs/
+- Screenshot bukti tersimpan di backend/screenshots/
+
+5) Notifikasi Telegram per-user
+- Telegram mengirim ke chat_id milik user (bukan chat_id global)
+- Token bot disimpan per-user di database (diisi saat registrasi)
